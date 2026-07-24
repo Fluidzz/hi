@@ -1,2 +1,3 @@
-discord.py
-flask
+python-telegram-bot==21.4
+maigret
+requests
