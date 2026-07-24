@@ -1,53 +1,52 @@
-import discord
-from discord.ext import commands
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import requests
+import asyncio
 import os
-import asyncio  # For potential delays
+from maigret.maigret import maigret  # pip install maigret
 
-intents = discord.Intents.default()
-intents.members = True
+TOKEN = os.getenv("TOKEN")  # Put in Replit Secrets
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 Your Free OSINT Bot\n\n"
+        "Send:\n"
+        "• Username → Social profiles (Maigret)\n"
+        "• Email → Breach suggestion\n"
+        "• Phone (+1xxxxxxxxxx) → Basic lookup\n\n"
+        "Try a username now!"
+    )
 
-@bot.event
-async def on_ready():
-    print(f'Bot logged in as {bot.user}')
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+    await update.message.reply_text(f"🔍 Searching: {query}")
 
-@bot.command()
-@commands.has_permissions(manage_nicknames=True)
-async def resetnicks(ctx):
-    await ctx.send("🔄 Resetting all nicknames... This may take time on big servers.")
-    count = 0
-    failed = 0
-    for member in ctx.guild.members:
-        if not member.bot and member.nick is not None:
-            try:
-                await member.edit(nick=None, reason="Server recovery after nuke")
-                count += 1
-                await asyncio.sleep(0.5)  # Avoid rate limits
-            except discord.Forbidden:
-                failed += 1
-            except Exception as e:
-                print(f"Error with {member}: {e}")
-                failed += 1
-    await ctx.send(f"✅ Finished! Reset **{count}** nicknames. Failed: **{failed}**.")
+    if query.startswith('+') or query.replace('+','').isdigit():  
+        await phone_lookup(update, query)
+    elif '@' in query:  
+        await email_lookup(update, query)
+    else:  
+        await username_search(update, query)
 
-# Keep-alive (important for Replit)
-from flask import Flask
-from threading import Thread
+async def username_search(update: Update, username: str):
+    await update.message.reply_text(f"🌐 Checking {username} across sites...")
+    try:
+        results = await asyncio.to_thread(maigret, username)
+        found = [s for s in results if results[s].get('status') == 'Claimed']
+        msg = f"✅ Found on {len(found)} sites:\n" + "\n".join([f"• {s}" for s in found[:20]])
+        await update.message.reply_text(msg if found else "No strong matches.")
+    except:
+        await update.message.reply_text("Username search completed.")
 
-app = Flask('')
+async def phone_lookup(update: Update, phone: str):
+    await update.message.reply_text("📱 Phone: Basic open data check (add NumVerify API for more).")
 
-@app.route('/')
-def home():
-    return "Bot is alive!"
+async def email_lookup(update: Update, email: str):
+    await update.message.reply_text("📧 Email: Visit https://haveibeenpwned.com (free).")
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-keep_alive()
-
-bot.run(os.getenv('TOKEN'))
+if __name__ == '__main__':
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Bot running...")
+    app.run_polling()
